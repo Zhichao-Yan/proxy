@@ -1,0 +1,29 @@
+<html>
+    <head>
+        <!--注释方法-->
+        <meta charset="utf-8">
+        <TITLE>给你点颜色看看</TITLE>
+    </head>
+    <body>
+        <h1>
+            请选择一个颜色:
+        </h1>
+        <hr>
+        <p>
+            <form action="/cgi-bin/color" method="post">        
+                <label for="colorSelect">Please choose a color:</label>
+                <select name="color" id="colorSelect">
+                    <option value="red">Red</option>
+                    <option value="green">Green</option>
+                    <option value="blue">Blue</option>
+                    <option value="yellow">Yellow</option>
+                    <option value="purple">Purple</option>
+                    <option value="orange">Orange</option>
+                    <option value="pink">Pink</option>
+                    <!-- Add more colors as needed -->
+                </select>
+                <input type="submit" value="Submit">
+            </form>  
+        </p>
+    </body>
+</html>

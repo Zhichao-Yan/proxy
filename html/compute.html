@@ -1,0 +1,28 @@
+<html>
+    <head>
+        <!--注释方法-->
+        <meta charset="utf-8">
+        <TITLE>计算</TITLE>
+    </head>
+    <body>
+        <!-- <p>
+            <FORM ACTION="color.cgi" METHOD="POST">
+                Enter a color: <INPUT TYPE="text" NAME="color">
+                <INPUT TYPE="submit">
+            </FORM>        
+        </p> -->
+        <h1>
+            Compute the sum of two numbers:
+        </h1>
+        <hr>
+        <p>
+            <form action="/cgi-bin/adder" method="GET" >
+                <label for="name">a:</label>
+                <input type="text" id="name" name="value1" required>
+                <label for="name">b:</label>
+                <input type="text" id="name" name="value2" required>
+                <input type="submit" value="提交">
+            </form>
+        </p>
+    </body>
+</html>
