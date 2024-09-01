@@ -105,7 +105,7 @@ void transaction(int clientfd)
                 if(rc > 0)
                 {   
                     printf("---->Request(%d)<----\n",clientfd);       
-                    printf("%s",buf);
+                    printf("%s\n",buf);
                     parse_request(clientfd,buf);
                 }else if( rc < 0)
                 {
@@ -631,6 +631,7 @@ void local_service(int clientfd,char *method,char *path,char *body)
 void signal_sigchld(int sig)
 {
     pid_t pid = waitpid(-1,NULL,0);
+    printf("---->Response<----\n");
     printf("子进程%d结束\n\n",pid);
     return;
 }
