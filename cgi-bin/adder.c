@@ -5,7 +5,7 @@
 int main(void) 
 {
     char *buf;
-    char content[100], answer[100];
+    char content[200], answer[200];
     int n1=0, n2=0,head_only = 0;
     /* Extract the two arguments */
     // homework 11.10
