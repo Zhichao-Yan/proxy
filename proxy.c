@@ -365,6 +365,8 @@ void parse_request(int clientfd,const char *buf)
     if(strcmp(host,localhost) == 0 && strcmp(port,localport) == 0)
     {
         local_service(clientfd,method,path,body);
+    }else{
+        
     }
     return;
 }
