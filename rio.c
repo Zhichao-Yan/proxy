@@ -144,7 +144,7 @@ static ssize_t rio_read(rio_t *rp, char *usrbuf, size_t n)
  * rio_readnb - Robustly read n bytes (buffered)
  * 带内部缓冲的读函数（具有鲁棒性）特点：
  * 1. 从内部缓冲区复制n个bytes数据，如果内部缓冲区空了，能够自动填充
- * 2. 适合既包含文本又包含二进制数据的文件：使用rio_readnb读取二进制，使用rio_readlineb读取文本
+ * 2. 适合既包含文本又包含二进制数据的文件：使用rio_readnb读取二进制，使用rio_readlineb读取文本行
  * 3. 对同一描述符和内部缓冲，rio_readlineb和rio_readnb可以交错使用
  * 4. 如果描述符为阻塞状态，如果没有读完n个字节，read会阻塞
  * 返回值

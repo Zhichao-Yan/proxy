@@ -7,6 +7,7 @@
 #include <string.h>
 #include <signal.h>
 #include <errno.h>
+#include <netdb.h>
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -21,6 +22,7 @@
 #include "queue.h"
 #include "rio.h"
 
+typedef enum { HTTP_MODE, TUNNEL_MODE } conn_mode_t;
 
 void signal_sigchld(int sig);
 void ignore_sigpipe(int sig);
@@ -38,16 +40,16 @@ void method_post(int fd,char *filename,char *body);
 void transaction(int clientfd);
 void local_service(int clientfd,char *method,char *path,char *body);
 
-
+void send_conn_response(int fd);
 void send_response(int fd,const char *line,const char *header,const char *body);
 void send_error_response(int fd,char *version,const char *code,const char *status,const char *msg,const char *cause,int head_only);
 
 void parse_url(char *url,char *scheme,char *host,char *path);
 void parse_headers(const char *headers,const char *name,char *value);
 void parse_host(char *host,char *port);
-void parse_request(int clientfd,const char *buf);
+void parse_local_request(int clientfd,char *line,char *headers,char *body);
 void parse_path(char *path,char *filename,char *args);
 
-
+int connect_to_server(char *host,char *port);
 
 #endif 

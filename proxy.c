@@ -4,8 +4,8 @@
 #define SBUFSIZE 16
 #define QUEUE_SIZE 100
 #define MINI_THREADS 4
-#define MAXBUF 1024
-#define MAXLINE 1024
+#define MAXBUF 8192
+#define MAXLINE 8192
 #define localhost "172.16.153.130"
 #define localport "4000"
 
@@ -29,9 +29,9 @@ int main(int argc,char **argv)
     }
     struct sockaddr_in client_addr;
     socklen_t addrlen = sizeof(client_addr);
-    // sbuf_init(&sbuf,SBUFSIZE);  // 初始化缓冲
-    // pthread_t tid; 
-    // pthread_create(&tid,NULL,manager,NULL);     // 创建管理者线程
+    sbuf_init(&sbuf,SBUFSIZE);  // 初始化缓冲
+    pthread_t tid; 
+    pthread_create(&tid,NULL,manager,NULL);     // 创建管理者线程
     while(1)
     {
         clientfd = accept(listenfd,(struct sockaddr*)&client_addr,&addrlen);
@@ -40,8 +40,8 @@ int main(int argc,char **argv)
             perror("accept error");
             break;
         }
-        transaction(clientfd);   // 处理事务
-        // sbuf_insert(&sbuf,clientfd);
+        // transaction(clientfd);   // 处理事务
+        sbuf_insert(&sbuf,clientfd);
     } 
     close(listenfd);
     return 0;
@@ -61,6 +61,8 @@ static int set_nonblocking(int fd)
 
 void transaction(int clientfd)
 {
+    conn_mode_t mode = HTTP_MODE;
+    int serverfd = -1; 
     /* 设置为非阻塞 */
     if (set_nonblocking(clientfd) < 0)
     {
@@ -76,7 +78,7 @@ void transaction(int clientfd)
     int max_fd = clientfd;
 
     struct timeval timeout;
-    timeout.tv_sec = 60; // 等待时间10秒
+    timeout.tv_sec = 5; // 等待时间10秒
     timeout.tv_usec = 0; // 微秒，0表示不使用微秒级超时
 
     while(1)
@@ -87,13 +89,13 @@ void transaction(int clientfd)
         {
             if(errno !=  EINTR)
             {
-                printf("Select error, Closing connection...\n");
+                perror("Select error");
                 break;
             } 
         }else if(activity == 0)
         {
 
-            printf("Timeout, Closing connection...\n");
+            perror("Timeout");
             break;
 
         }else if(activity > 0)
@@ -104,25 +106,139 @@ void transaction(int clientfd)
                 int rc = rio_readnb(&rio,buf,MAXBUF);
                 if(rc > 0)
                 {   
-                    printf("---->Request(%d)<----\n",clientfd);       
-                    printf("%s\n",buf);
-                    parse_request(clientfd,buf);
+                    if(mode == HTTP_MODE)
+                    {
+                        printf("---->Request(%d)<----\n",clientfd);       
+                        printf("%s\n",buf);
+                        char *line = NULL,*headers = NULL,*body = NULL,*ptr = NULL;
+                        ptr = strpbrk(buf,"\r\n");
+                        if(ptr)
+                        {
+                            *(ptr) = '\0';
+                            headers = ptr + 2;
+                            line = buf;
+                        }
+                        ptr = strstr(headers,"\r\n\r\n");
+                        if(ptr)
+                        {
+                            *(ptr) = '\0';
+                            body = ptr + 4;
+                        }
+                        char host[100] = {'\0'},port[10] = {'\0'};
+                        parse_headers(headers,"Host",host);
+                        parse_host(host,port);
+                        if(strcmp(host,localhost) == 0 && strcmp(port,localport) == 0)
+                        {
+                            parse_local_request(clientfd,line,headers,body);
+                        }else{
+                            serverfd = connect_to_server(host,port);
+                            if(serverfd > 0)
+                            {
+                                set_nonblocking(serverfd);
+                                FD_SET(serverfd, &read_set);
+                                if (serverfd > max_fd) 
+                                {
+                                    max_fd = serverfd;
+                                }
+                                mode = TUNNEL_MODE;
+                                send_conn_response(clientfd);
+                            }else
+                            {
+                                send_error_response(clientfd,"HTTP/1.1","503","Service Unavailable","Failed connecting to the Server",host,0);
+                            }
+                        }
+                    }else if(mode == TUNNEL_MODE)
+                    {
+                        if (rio_writen(serverfd, buf, rc) < 0) 
+                        {
+                            perror("Failed write to serverfd");
+                            break;
+                        }
+                    }
                 }else if( rc < 0)
                 {
-                    printf("read error\n");
+                    perror("Failed reading from cliendfd");
                     break;
                 }else if(rc == 0)
                 {
-                    printf("客户端关闭连接：对端关闭\n");
+                    perror("clientfd close");
                     break;                  
+                }
+            }
+            // 处理代理转发
+            if (serverfd > 0 && FD_ISSET(serverfd, &ready_set) && mode == TUNNEL_MODE) 
+            {
+                /* 初始化缓冲 */
+                rio_t rio;
+                rio_readinitb(&rio,serverfd);
+                char buf[MAXBUF] = {'\0'};
+                int rc = rio_readnb(&rio,buf,MAXBUF);
+                if(rc > 0)
+                {
+                    if(rio_writen(clientfd,buf,rc) < 0)
+                    {
+                        perror("Failed writing to clientfd");
+                        break;
+                    }
+                }else{
+                    perror("Failed reading from serverfd");
+                    /* 读取失败，重新切换回HTTP_MODE */
+                    FD_CLR(serverfd, &read_set);
+                    max_fd = clientfd;
+                    close(serverfd);
+                    serverfd  = -1;
+                    mode = HTTP_MODE;
                 }
             }
         }
     }
     close(clientfd);
+    if(serverfd > 0)
+        close(serverfd);
     return;
 }
 
+/* 连接目的服务器 */
+int connect_to_server(char *host,char *port)
+{
+    struct addrinfo *result,*p;
+    struct addrinfo hints;
+    int serverfd;
+    memset(&hints, 0, sizeof(struct addrinfo)); //  只能设置某些字段，只好先清空hints
+    /* hints提供对getaddrinfo返回的listp指向的套接字链表更好的控制 */
+    hints.ai_family  = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;      // 对每个地址，规定只返回SOCK_STREAM套接字
+    /*  hints.ai_flags 是掩码 */
+    hints.ai_flags = AI_ADDRCONFIG;
+    int rc;
+    if ((rc = getaddrinfo(host, port, &hints, &result)) != 0) 
+    {
+        fprintf(stderr, "getaddrinfo failed (host-%s port-%s): %s\n", host,port, gai_strerror(rc));
+        return -2;
+    }
+    /* 遍历列表，找到套接字，直到成功 */
+    for (p = result; p; p = p->ai_next) 
+    {
+        /* 直接用返回addrinfo中的数据结构作为参数调用socket函数 */
+        if ((serverfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) < 0) 
+            continue;  // 失败了，继续链表中下一个套接字地址
+
+        if(connect(serverfd,p->ai_addr,p->ai_addrlen) == 0)
+        {
+            break;
+        }
+        if (close(serverfd) < 0) 
+        {   
+            fprintf(stderr, "serverfd close failed: %s\n", strerror(errno));
+            freeaddrinfo(result);
+            return -1;
+        }  
+    }
+    freeaddrinfo(result);
+    if (!p)     // p为空，意味着链表检查完，没有套接字地址绑定描述符成功
+        return -1;
+    return serverfd;
+}
 
 
 /* 工作线程 */
@@ -252,6 +368,8 @@ void parse_headers(const char *headers,const char *name,char *value)
             int length = end - start;
             strncpy(value, start, length);
             value[length] = '\0'; // 确保字符串以空字符结尾
+        }else{
+            strcpy(value,start);
         }
     }else{  // 没找到
         strcpy(value,"");
@@ -295,9 +413,32 @@ void parse_path(char *path,char *filename,char *args)
     return;
 }
 
+/* 解析本地请求 */
+void parse_local_request(int clientfd,char *line,char *headers,char *body)
+{
+    char *method = NULL,*url = NULL,*version = NULL,*ptr = NULL;
+    /* 获取method */
+    method = line;
+    ptr = strchr(line,' ');
+    *ptr = '\0';
+    ptr = ptr + 1;
+    /* 获取url */
+    url = ptr;
+    ptr = strchr(ptr,' ');
+    *ptr = '\0';
+    ptr = ptr + 1;
+    /* 获取version */
+    version = ptr;
+    version = NULL;
+    /* 从url中抽取方案、站点、路径 */
+    char scheme[10] = {'\0'},path[200] = {'\0'},station[100] = {'\0'};
+    parse_url(url,scheme,station,path);
+    local_service(clientfd,method,path,body);
+    return;
+}
 
 /* 解析http请求报文 */
-void parse_request(int clientfd,const char *buf)
+void parse_request1(int clientfd,const char *buf)
 {
     char request[MAXBUF];
     strcpy(request,buf);
@@ -368,6 +509,22 @@ void parse_request(int clientfd,const char *buf)
     }else{
         
     }
+    return;
+}
+
+/* 发送响应 */
+void send_conn_response(int clientfd)
+{
+    char buf[MAXLINE] = {'\0'};
+    strcpy(buf,"HTTP/1.1 200 Connection Established\r\n");
+    strcat(buf,"Server: The Tiny webserver\r\n");
+    strcat(buf,"Proxy-Connection: keep-alive\r\n");
+    strcat(buf,"Connection: keep-alive\r\n");
+    strcat(buf,"\r\n");
+    printf("---->Response<----\n");
+    printf("%s",buf);
+    if(rio_writen(clientfd,buf,strlen(buf)) < 0)
+        perror("write error");
     return;
 }
 
